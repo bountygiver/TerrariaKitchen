@@ -405,7 +405,7 @@ namespace TerrariaKitchen
                             Store.ResolveWavePayment(wave);
 
                             TSPlayer.All.SendInfoMessage($"A wave of {wave.CurrentMobs.Count} has been spawned by {wave.Contributions.Count(c => c.Value > 0)} chatters.");
-                            Overlay.SendPacket(new { @event = "waveEnd", chatter });
+                            Overlay.SendPacket(new { @event = "waveEnd", chatter = wave.Chatter });
                         }
                         else
                         {
