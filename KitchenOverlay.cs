@@ -87,7 +87,7 @@ namespace TerrariaKitchen
                     {
                         if (!ShuttingDown)
                         {
-                            Console.WriteLine("(Terraria Kitchen) An error is detected.");
+                            Console.WriteLine("(Terraria Kitchen) An error is detected with the HTTP server.");
                         }
                     }
                 }
@@ -187,7 +187,7 @@ namespace TerrariaKitchen
             new Thread(() =>
             {
                 var client = listener.EndAcceptTcpClient(ar);
-                Console.WriteLine("(TEST WEBSOCKET) Got connection from {0}", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
+                //Console.WriteLine("(TEST WEBSOCKET) Got connection from {0}", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
                 using (var stream = client.GetStream())
                 {
                     while (!ShuttingDown)
@@ -197,7 +197,7 @@ namespace TerrariaKitchen
                             if (!client.Connected || ShuttingDown)
                             {
                                 // Dispose if no longer connected
-                                Console.WriteLine("(TEST WEBSOCKET) {0} Disconnected", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
+                                //Console.WriteLine("(TEST WEBSOCKET) {0} Disconnected", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
                                 lock (wsStreams)
                                 {
                                     wsStreams.Remove(stream);
@@ -211,7 +211,7 @@ namespace TerrariaKitchen
                             if (!client.Connected || ShuttingDown)
                             {
                                 // Dispose if no longer connected
-                                Console.WriteLine("(TEST WEBSOCKET) {0} Disconnected", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
+                                //Console.WriteLine("(TEST WEBSOCKET) {0} Disconnected", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "Address not found");
                                 lock (wsStreams)
                                 {
                                     wsStreams.Remove(stream);
@@ -231,7 +231,7 @@ namespace TerrariaKitchen
                             byte[] swkaSha1 = System.Security.Cryptography.SHA1.Create().ComputeHash(Encoding.UTF8.GetBytes(swka));
                             string swkaSha1Base64 = Convert.ToBase64String(swkaSha1);
 
-                            Console.WriteLine("(TEST WEBSOCKET) GET Received - {0}", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString()  ?? "Address not found");
+                            //Console.WriteLine("(TEST WEBSOCKET) GET Received - {0}", (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString()  ?? "Address not found");
 
                             // HTTP/1.1 defines the sequence CR LF as the end-of-line marker
                             byte[] response = Encoding.UTF8.GetBytes(

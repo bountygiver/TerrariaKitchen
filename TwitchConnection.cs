@@ -137,7 +137,7 @@ namespace TerrariaKitchen
             TwitchClient.Connect();
             Store.ChangeWorld(Main.worldID);
 
-            Console.WriteLine($"Kitchen started for worldID: {Main.worldID}");
+            Console.WriteLine($"(Terraria Kitchen) Kitchen started for worldID: {Main.worldID}");
 
             incomeTimer?.Dispose();
             if (Config.IncomeInterval < 5)
@@ -441,7 +441,7 @@ namespace TerrariaKitchen
             var mobAmount = buyParams[3];
             var buyTarget = buyParams.Length == 5 ? buyParams[4] : null;
             var chatter = chatMessage.Username.ToLower();
-            Console.WriteLine($"(Terraria Kitchen) {chatter} attempts to buy {mobAmount}, {mobName}");
+            //Console.WriteLine($"(Terraria Kitchen) {chatter} attempts to buy {mobAmount}, {mobName}");
             if (int.TryParse(mobAmount, out var amount))
             {
                 if (amount <= 0)
