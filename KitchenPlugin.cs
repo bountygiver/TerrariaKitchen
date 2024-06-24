@@ -4,6 +4,9 @@ using TerrariaApi.Server;
 using Terraria.ID;
 using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
+using System.Text;
+using Terraria.Localization;
+using System;
 
 namespace TerrariaKitchen
 {
@@ -24,11 +27,15 @@ namespace TerrariaKitchen
 
         private KitchenCreditsStore Store;
 
+        private KitchenOverlay Overlay;
+
         private static readonly string KitchenConfigPath = Path.Combine(TShock.SavePath, "kitchen.json");
 
         public KitchenConfig Config { get; private set; }
 
         private static readonly string ApiPath = Path.Combine(TShock.SavePath, "kitchenapi.txt");
+
+        private Random randomSeed;
 
         public KitchenPlugin(Main game) : base(game)
         {
@@ -50,9 +57,10 @@ namespace TerrariaKitchen
             {
                 Config = new KitchenConfig();
             }
-            Console.WriteLine($"(Terraria Kitchen) Config: {JsonConvert.SerializeObject(Config)}");
             Store = new KitchenCreditsStore(Config);
-            _connection = new TwitchConnection(Store, Config);
+            Overlay = new KitchenOverlay(Config);
+            _connection = new TwitchConnection(Store, Config, Overlay);
+            randomSeed = new Random();
             _connection.SpawnUnit = SpawnFunc;
 
             if (File.Exists(ApiPath))
@@ -74,13 +82,76 @@ namespace TerrariaKitchen
         {
             Commands.ChatCommands.Add(new Command(Permissions.spawn, StartKitchen, "startkitchen") { HelpText = "Start up the kitchen server." });
             Commands.ChatCommands.Add(new Command(Permissions.spawn, SetupKitchen, "setkitchenkey") { HelpText = "Set Twitch API key for kitchen." });
-            Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) => Store.ResetChatterBalance(), "resetkitchen") { HelpText = "Reset all chatter balance in the current world." });
+            Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) =>
+            {
+                Store.ResetChatterBalance();
+                Overlay.SendPacket(new { @event = "reset" });
+            }, "resetkitchen") { HelpText = "Reset all chatter balance in the current world." });
             Commands.ChatCommands.Add(new Command(Permissions.spawn, GiveMoney, "kitchengive") { HelpText = "Give a chatter an amount of credits." });
+            Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) =>
+            {
+                try
+                {
+                    var newConfig = JsonConvert.DeserializeObject<KitchenConfig>(File.ReadAllText(KitchenConfigPath));
+                    Console.WriteLine($"(Terraria Kitchen) Config found! Loaded menu with {newConfig.Entries?.Count ?? 0} items!");
+                    if (newConfig.Entries?.Count >= 0)
+                    {
+                        Config.Entries = newConfig.Entries;
+                    }
+                    if (newConfig.Events?.Count >= 0)
+                    {
+                        Config.Events = newConfig.Events;
+                    }
+                    Config.Income = newConfig.Income;
+                    Config.MaxBalance = newConfig.MaxBalance;
+                    Config.StartingMoney = newConfig.StartingMoney;
+                    Config.SubscriberPriceMultiplier = newConfig.SubscriberPriceMultiplier;
+                    Config.ModAbuse = newConfig.ModAbuse;
+                    Config.XRange = newConfig.XRange;
+                    Config.YRange = newConfig.YRange;
+                    if (Config.IncomeInterval != newConfig.IncomeInterval)
+                    {
+                        Config.IncomeInterval = newConfig.IncomeInterval;
+                        _connection?.UpdateTime();
+                    }
+                }
+                catch
+                {
+                    Console.WriteLine($"(Terraria Kitchen) Error reading config.");
+                }
+            }, "kitchenmenuupdate") { HelpText = "Re-read kitchen.json and update settings." });
 
             ServerApi.Hooks.WorldSave.Register(this, (e) =>
             {
                 Store.UpdatePlayersToDb();
             });
+            ServerApi.Hooks.NpcSpawn.Register(this, RaffleTownNPC);
+            Overlay.StartServer(Config.OverlayPort, Config.OverlayWsPort);
+        }
+
+        private void RaffleTownNPC(NpcSpawnEventArgs args)
+        {
+            var npc = Main.npc[args.NpcId];
+            if (npc != null && npc.townNPC)
+            {
+                var existingNames = new HashSet<string>();
+                for (int i = 0; i < Main.npc.Length; i++)
+                {
+                    if (Main.npc[i].active && Main.npc[i].netID != npc.netID && Main.npc[i].townNPC)
+                    {
+                        existingNames.Add(Main.npc[i].GivenName.ToLower());
+                    }
+                }
+                var raffleNames = Store.CurrentChatters.Select(c => c.ToLower()).Except(existingNames);
+
+                if (raffleNames.Any())
+                {
+                    var raffled = raffleNames.ElementAt(randomSeed.Next(raffleNames.Count()));
+                    TSPlayer.All.SendSuccessMessage($"{raffled} has been raffled as {npc.GivenName}!");
+                    npc.GivenName = raffled;
+                    NetMessage.SendData(56, -1, -1, NetworkText.FromLiteral(npc.GivenName), args.NpcId);
+                }
+            }
         }
 
         private void GiveMoney(CommandArgs args)
@@ -129,20 +200,23 @@ namespace TerrariaKitchen
             if (args.Parameters.Count == 2)
             {
                 List<TSPlayer> list = TSPlayer.FindByNameOrID(args.Parameters[1]);
-                if (list.Count == 0)
+                targetPlayer = list.FirstOrDefault(p => p.RealPlayer);
+                if (targetPlayer == null)
                 {
-                    args.Player.SendErrorMessage($"Can't find player {args.Parameters[1]}");
-                    return;
+                    args.Player.SendErrorMessage($"Can't find player {args.Parameters[1]}.");
                 }
 
-                targetPlayer = list[0];
             }
 
-            if (kitchenTargetID != null && kitchenTargetID != targetPlayer.UUID)
+            if (kitchenTargetID != null && kitchenTargetID != targetPlayer?.UUID)
             {
                 args.Player.SendInfoMessage("A previous player was already being served by the kitchen, changing customer...");
             }
-            kitchenTargetID = targetPlayer.UUID;
+            kitchenTargetID = targetPlayer?.UUID;
+            if (kitchenTargetID == null)
+            {
+                args.Player.SendInfoMessage("No players specified, all players are now eligible customers...");
+            }
             _connection.Initialize(args.Parameters[0], () =>
             {
                 args.Player.SendInfoMessage("(Terraria Kitchen) Connected to twitch chat.");
@@ -150,47 +224,78 @@ namespace TerrariaKitchen
             {
                 args.Player.SendInfoMessage("(Terraria Kitchen) Disconnected from twitch chat.");
             });
+
+            Overlay?.SendPacket(new { @event = "initialize" });
         }
 
-        private bool SpawnFunc(int mobId, int count, string? sender = null)
+        private bool SpawnFunc(int mobId, int count, string? sender = null, string? targetPlayer = null, bool silent = false)
         {
-            if (kitchenTargetID == null)
-            {
-                return false;
-            }
-
             var result = Math.Min(count, 200);
-            if (result < 0)
+            if (result <= 0)
             {
                 return false;
             }
 
-            TSPlayer? spawnPlayer = TShock.Players.FirstOrDefault(p => p.UUID == kitchenTargetID);
-            if (spawnPlayer == null)
+            var players = TShock.Players.Where(p => p?.RealPlayer == true);
+
+            if (!players.Any())
             {
-                TShock.Utils.Broadcast("(Terraria Kitchen) Customer not found, kitchen is closed...", Convert.ToByte(255), 0, 0);
-                kitchenTargetID = null;
                 return false;
             }
 
-            NPC nPC = TShock.Utils.GetNPCById(mobId);
-            if (nPC.type >= 1 && nPC.type < NPCID.Count && nPC.type != 113)
+            if (mobId == 113)
             {
-                TSPlayer.Server.SpawnNPC(nPC.netID, nPC.FullName, result, spawnPlayer.TileX, spawnPlayer.TileY, 50, 20);
-                TSPlayer.All.SendSuccessMessage($"{sender ?? "Someone"} ordered {result} {nPC.FullName}{(result > 1 ? "s" : "")}!");
+                // WOF Do not use target player, and will always attempt to spawn on whoever that is eligible.
 
-                return true;
-            }
-            else if (nPC.type == 113)
-            {
-                if (Main.wofNPCIndex != -1 || spawnPlayer.Y / 16f < (float)(Main.maxTilesY - 205))
+                if (Main.wofNPCIndex != -1)
                 {
                     return false;
                 }
 
-                NPC.SpawnWOF(new Vector2(spawnPlayer.X, spawnPlayer.Y));
+                float wofTargetY = Main.maxTilesY - 205;
+                var wofTarget = players.FirstOrDefault(p => p.Y / 16f >= wofTargetY);
 
-                TSPlayer.All.SendSuccessMessage("ONE WALL OF FLESH, SERVING RIGHT UP");
+                if (wofTarget != null)
+                {
+                    NPC.SpawnWOF(new Vector2(wofTarget.X, wofTarget.Y));
+
+                    TSPlayer.All.SendSuccessMessage("ONE WALL OF FLESH, SERVING RIGHT UP");
+
+                    return true;
+                }
+
+                return false;
+            }
+
+            var targetedPlayer = false;
+            TSPlayer? spawnPlayer = players.FirstOrDefault(p => p.UUID == kitchenTargetID);
+            if (spawnPlayer == null)
+            {
+                // Use a random active player if kitchen has no target.
+                spawnPlayer = players.ElementAt(randomSeed.Next(players.Count()));
+            }
+
+            if (targetPlayer != null && players.FirstOrDefault(p => p.Name.ToLower() == targetPlayer.ToLower()) is TSPlayer target)
+            {
+                // If target is specified, override
+                targetedPlayer = true;
+                spawnPlayer = target;
+            }
+
+            NPC nPC = TShock.Utils.GetNPCById(mobId);
+            if (nPC.type >= -65 && nPC.type < NPCID.Count && nPC.type != 113)
+            {
+                var successMsg = new StringBuilder($"{sender ?? "Someone"} ordered {result} {nPC.FullName}{(result > 1 ? "s" : "")}");
+                if (targetedPlayer)
+                {
+                    successMsg.Append($" for {targetPlayer}");
+                }
+                successMsg.Append("!");
+                TSPlayer.Server.SpawnNPC(nPC.netID, nPC.FullName, result, spawnPlayer.TileX, spawnPlayer.TileY, Config.XRange ?? 50, Config.YRange ?? 20);
+                if (!silent)
+                {
+                    TSPlayer.All.SendSuccessMessage(successMsg.ToString());
+                }
 
                 return true;
             }
@@ -204,6 +309,7 @@ namespace TerrariaKitchen
             {
                 // Deregister hooks here
                 _connection.Dispose();
+                Overlay?.Dispose();
             }
             base.Dispose(disposing);
         }

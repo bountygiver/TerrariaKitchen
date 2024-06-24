@@ -1,4 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
+using TwitchLib.Api.Helix.Models.Chat.GetChatters;
 
 namespace TerrariaKitchen
 {
@@ -10,6 +11,10 @@ namespace TerrariaKitchen
 
         public HashSet<string> CurrentChatters { get; private set; }
 
+        public List<KitchenPool> Pools { get; private set; }
+
+        public List<KitchenWave> Waves { get; private set; }
+
         private int? CurrentWorld;
 
         private readonly KitchenConfig Config;
@@ -19,6 +24,8 @@ namespace TerrariaKitchen
             Config = config;
             Credits = new Dictionary<string, int>();
             CurrentChatters = new HashSet<string>();
+            Pools = new List<KitchenPool>();
+            Waves = new List<KitchenWave>();
             SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_e_sqlite3());
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -49,7 +56,7 @@ namespace TerrariaKitchen
             UpdatePlayersToDb();
 
             CurrentWorld = newWorld;
-            Credits.Clear();
+            ResetInternal();
 
             if (CurrentWorld == null)
             {
@@ -90,19 +97,22 @@ namespace TerrariaKitchen
             {
                 connection.Open();
 
-                using (var transaction = connection.BeginTransaction())
+                lock (Credits)
                 {
-                    foreach (var balance in Credits)
+                    using (var transaction = connection.BeginTransaction())
                     {
-                        var command = connection.CreateCommand();
-                        command.CommandText = @"INSERT OR REPLACE INTO kitchenMonies (name, world, amount) 
+                        foreach (var balance in Credits)
+                        {
+                            var command = connection.CreateCommand();
+                            command.CommandText = @"INSERT OR REPLACE INTO kitchenMonies (name, world, amount) 
                             VALUES($name, $world, $amount);";
-                        command.Parameters.AddWithValue("$name", balance.Key);
-                        command.Parameters.AddWithValue("$world", CurrentWorld);
-                        command.Parameters.AddWithValue("$amount", balance.Value);
-                        command.ExecuteNonQuery();
+                            command.Parameters.AddWithValue("$name", balance.Key);
+                            command.Parameters.AddWithValue("$world", CurrentWorld);
+                            command.Parameters.AddWithValue("$amount", balance.Value);
+                            command.ExecuteNonQuery();
+                        }
+                        transaction.Commit();
                     }
-                    transaction.Commit();
                 }
             }
             Console.WriteLine("(Terraria Kitchen) Credits Saved to DB...");
@@ -110,29 +120,35 @@ namespace TerrariaKitchen
 
         public void Income(object? state)
         {
-            foreach (var player in CurrentChatters)
+            lock (Credits)
             {
-                if (!Credits.ContainsKey(player))
+                foreach (var player in CurrentChatters)
                 {
-                    Credits[player] = Config.StartingMoney;
-                }
+                    if (!Credits.ContainsKey(player))
+                    {
+                        Credits[player] = Config.StartingMoney;
+                    }
 
-                Credits[player] += Config.Income;
+                    Credits[player] += Config.Income;
+                }
             }
         }
 
         public void ModBalance(string chatter, int amount)
         {
-            if (!Credits.ContainsKey(chatter))
+            lock (Credits)
             {
-                Credits[chatter] = Config.StartingMoney;
-            }
+                if (!Credits.ContainsKey(chatter))
+                {
+                    Credits[chatter] = Config.StartingMoney;
+                }
 
-            Credits[chatter] += amount;
+                Credits[chatter] += amount;
 
-            if (Credits[chatter] < 0)
-            {
-                Credits[chatter] = 0;
+                if (Credits[chatter] < 0)
+                {
+                    Credits[chatter] = 0;
+                }
             }
         }
 
@@ -143,13 +159,81 @@ namespace TerrariaKitchen
                 Credits[chatter] = Config.StartingMoney;
             }
 
-            return Credits[chatter];
+            return Credits[chatter] - Pools.Sum(p => p.Contributions.Where(c => c.Key == chatter).Sum(c => c.Value)) - Waves.Sum(p => p.Contributions.Where(c => c.Key == chatter).Sum(c => c.Value));
+        }
+
+        public KitchenPool? GetPool(int PoolIndex)
+        {
+            return Pools.FirstOrDefault(p => p.Index == PoolIndex);
+        }
+
+        public int ContributePool(string chatter, int amount, int PoolIndex)
+        {
+            if (GetPool(PoolIndex) is KitchenPool pool)
+            {
+                var amt = pool.Contribute(chatter, amount);
+
+                return amt;
+            }
+            return 0;
+        }
+
+        public void ResolvePoolPayment(KitchenPool pool)
+        {
+            lock (Pools)
+            {
+                Pools.Remove(pool);
+
+                foreach (var contribution in pool.Contributions)
+                {
+                    if (!Credits.ContainsKey(contribution.Key))
+                    {
+                        Credits[contribution.Key] = Config.StartingMoney - contribution.Value;
+                    }
+                    else
+                    {
+                        Credits[contribution.Key] -= contribution.Value;
+                    }
+                }
+            }
+        }
+
+        public void ResolveWavePayment(KitchenWave wave)
+        {
+            lock (Waves)
+            {
+                Waves.Remove(wave);
+
+                foreach (var contribution in wave.Contributions)
+                {
+                    if (!Credits.ContainsKey(contribution.Key))
+                    {
+                        Credits[contribution.Key] = Config.StartingMoney - contribution.Value;
+                    }
+                    else
+                    {
+                        Credits[contribution.Key] -= contribution.Value;
+                    }
+                }
+            }
+        }
+
+        public void ResetInternal()
+        {
+            lock (Credits)
+            {
+                Credits.Clear();
+            }
+            lock (Pools)
+            {
+                KitchenPool.PoolIdx = 0;
+                Pools.Clear();
+            }
         }
 
         public void ResetChatterBalance()
         {
-            Credits.Clear();
-
+            ResetInternal();
             if (CurrentWorld == null)
             {
                 return;
@@ -162,6 +246,36 @@ namespace TerrariaKitchen
                 command.CommandText = @"DELETE FROM kitchenMonies WHERE world = $world;";
                 command.Parameters.AddWithValue("$world", CurrentWorld);
                 command.ExecuteNonQuery();
+            }
+        }
+
+        public bool Give(string chatter, string target, string amount)
+        {
+            lock (Credits)
+            {
+                if (!Credits.ContainsKey(chatter))
+                {
+                    Credits[chatter] = Config.StartingMoney;
+                }
+
+                if (!CurrentChatters.Contains(target))
+                {
+                    return false;
+                }
+
+                if (!Credits.ContainsKey(target))
+                {
+                    Credits[target] = Config.StartingMoney;
+                }
+
+                if (int.TryParse(amount, out var amt) && Credits[chatter] >= amt)
+                {
+                    Credits[chatter] -= amt;
+                    Credits[target] += amt;
+                    return true;
+                }
+
+                return false;
             }
         }
     }
