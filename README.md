@@ -114,6 +114,23 @@ With each purchasable mob as a separate entry.
     - `Price` is the credits cost per item
     - `MaxBuys` is the maximum number of purchases that can be made in a single order
     - `Pooling` is whether the mob allows pooling credits from multiple chatters
+- `Events` is a list of events that can be bought by chatters:
+    - `EventName` is the name that will be entered into the `!t event` command, case sensitive
+    - `EventAlias` is a list of other similar names that will also be treated as ordering for this entry, also case sensitive
+    - `Price` is the credits cost to reach to start the event
+    - `EventId` with a number of the following which will correspond to each event:
+        - `0`: Full Moon
+        - `1`: Blood Moon
+        - `2`: Solar Eclipse
+        - `3`: Sandstorm
+        - `4`: Rain
+        - `5`: Slime Rain
+        - `6`: Goblin Army
+        - `7`: Frost Legion
+        - `8`: Pirate Invasion
+        - `9`: Martian Madness
+        - `10`: Pumpkin Moon
+        - `11`: Frost Moon
 - `StartingMoney` is the credits new chatters will start with
 - `Income` is the amount of credits each chatters still in the channel chat room will receive periodically
 - `IncomeInterval` is the number of seconds between each income payout, minimum is 5 seconds.
