@@ -268,7 +268,7 @@ namespace TerrariaKitchen
                     Credits[target] = Config.StartingMoney;
                 }
 
-                if (int.TryParse(amount, out var amt) && Credits[chatter] >= amt)
+                if (int.TryParse(amount, out var amt) && amt > 0 && Credits[chatter] >= amt)
                 {
                     Credits[chatter] -= amt;
                     Credits[target] += amt;

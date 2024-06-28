@@ -516,7 +516,7 @@ namespace TerrariaKitchen
                         return;
                     }
 
-                    if (Config.ModAbuse && chatMessage.UserType == TwitchLib.Client.Enums.UserType.Moderator)
+                    if (Config.ModAbuse && (chatMessage.UserType == TwitchLib.Client.Enums.UserType.Moderator || chatMessage.UserType == TwitchLib.Client.Enums.UserType.Broadcaster))
                     {
                         SpawnUnit?.Invoke(mob.InternalName, amount, chatter, buyTarget, false);
                     }
