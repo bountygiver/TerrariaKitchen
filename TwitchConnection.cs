@@ -422,7 +422,7 @@ namespace TerrariaKitchen
 
                         if (Store.GetBalance(chatter) < price)
                         {
-                            Reply(chatMessage, $"Not enough credits! You have {Store.GetBalance(chatter)} kitchen credits remaining.");
+                            Reply(chatMessage, $"Not enough credits, need {price}! You have {Store.GetBalance(chatter)} kitchen credits remaining.");
                             return;
                         }
                         wave.AddContribution(chatter, price);
@@ -561,7 +561,7 @@ namespace TerrariaKitchen
                         if (Store.GetBalance(chatter) < price)
                         {
                             // Not enough money.
-                            Reply(chatMessage, $"Not enough credits! You have {Store.GetBalance(chatter)} kitchen credits remaining.");
+                            Reply(chatMessage, $"Not enough credits, need {price}! You have {Store.GetBalance(chatter)} kitchen credits remaining.");
                             return;
                         }
 
