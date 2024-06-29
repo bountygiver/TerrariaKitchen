@@ -48,11 +48,15 @@ namespace TerrariaKitchen
                     Config = JsonConvert.DeserializeObject<KitchenConfig>(File.ReadAllText(KitchenConfigPath));
                     Console.WriteLine($"(Terraria Kitchen) Config found! Loaded menu with {Config.Entries?.Count ?? 0} items!");
                 }
-                catch
+                catch (Exception ex)
                 {
                     // No config, use default.
                     Config = new KitchenConfig();
                     Console.WriteLine($"(Terraria Kitchen) Error: Unable to load config properly. Default values used.");
+                    if (ex is JsonReaderException je)
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) Json Error: {je.Message}");
+                    }
                 }
             }
             else
@@ -116,9 +120,13 @@ namespace TerrariaKitchen
                         _connection?.UpdateTime();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     Console.WriteLine($"(Terraria Kitchen) Error reading config.");
+                    if (ex is JsonReaderException je)
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) Json Error: {je.Message}");
+                    }
                 }
             }, "kitchenmenuupdate") { HelpText = "Re-read kitchen.json and update settings." });
 
