@@ -69,7 +69,7 @@ namespace TerrariaKitchen
                 amount = Math.Min(amount, TargetValue() - TotalContributions());
                 if (Contributions.ContainsKey(userName))
                 {
-                    if (amount + Contributions[userName] < 0)
+                    if (amount + Contributions[userName] <= 0)
                     {
                         return 0;
                     }

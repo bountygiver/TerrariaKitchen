@@ -120,6 +120,11 @@ namespace TerrariaKitchen
 
         public void Income(object? state)
         {
+            DistributeIncome(Config.Income);
+        }
+
+        public void DistributeIncome(int amount)
+        {
             lock (Credits)
             {
                 foreach (var player in CurrentChatters)
@@ -129,7 +134,7 @@ namespace TerrariaKitchen
                         Credits[player] = Config.StartingMoney;
                     }
 
-                    Credits[player] += Config.Income;
+                    Credits[player] += amount;
                 }
             }
         }

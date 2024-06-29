@@ -69,8 +69,12 @@ namespace TerrariaKitchen
             }
         }
 
-        private void Reply(ChatMessage msg, string txt, int Threshold = 95)
+        public void Announce(string txt, int Threshold = 95)
         {
+            if (TwitchClient?.IsConnected != true)
+            {
+                return;
+            }
             if (NextRateLimitRefresh == null || NextRateLimitRefresh < DateTime.Now)
             {
                 NextRateLimitRefresh = DateTime.Now.AddSeconds(30);
@@ -83,7 +87,28 @@ namespace TerrariaKitchen
             }
 
             ++MessageRateLimit;
-            TwitchClient?.SendReply(msg.Channel, msg.Id, txt);
+            TwitchClient.SendMessage(ChannelName, txt);
+        }
+
+        private void Reply(ChatMessage msg, string txt, int Threshold = 95)
+        {
+            if (TwitchClient?.IsConnected != true)
+            {
+                return;
+            }
+            if (NextRateLimitRefresh == null || NextRateLimitRefresh < DateTime.Now)
+            {
+                NextRateLimitRefresh = DateTime.Now.AddSeconds(30);
+                MessageRateLimit = 0;
+            }
+
+            if (MessageRateLimit >= Threshold)
+            {
+                return;
+            }
+
+            ++MessageRateLimit;
+            TwitchClient.SendReply(msg.Channel, msg.Id, txt);
         }
 
         public void Initialize(string channelName, Action onConnected, Action onDisconnected)
@@ -112,10 +137,17 @@ namespace TerrariaKitchen
             TwitchClient.OnConnected += (sender, e) => 
             { 
                 onConnected();
+                incomeTimer?.Dispose();
+                if (Config.IncomeInterval < 5)
+                {
+                    // Minimum 5 seconds interval.
+                    Config.IncomeInterval = 5;
+                }
+                incomeTimer = new Timer(Store.Income, null, TimeSpan.FromSeconds(Config.IncomeInterval), TimeSpan.FromSeconds(Config.IncomeInterval));
             };
             TwitchClient.OnJoinedChannel += (sender, e) =>
             {
-                TwitchClient.SendMessage(e.Channel, "Terraria Kitchen started! Use !t buy <name> <quantity> to spawn mobs!");
+                Announce("Terraria Kitchen started! Use !t buy <name> <quantity> to spawn mobs!");
             };
             TwitchClient.OnDisconnected += (sender, e) =>
             {
@@ -138,14 +170,6 @@ namespace TerrariaKitchen
             Store.ChangeWorld(Main.worldID);
 
             Console.WriteLine($"(Terraria Kitchen) Kitchen started for worldID: {Main.worldID}");
-
-            incomeTimer?.Dispose();
-            if (Config.IncomeInterval < 5)
-            {
-                // Minimum 5 seconds interval.
-                Config.IncomeInterval = 5;
-            }
-            incomeTimer = new Timer(Store.Income, null, TimeSpan.FromSeconds(Config.IncomeInterval), TimeSpan.FromSeconds(Config.IncomeInterval));
         }
 
         public void UpdateTime()
@@ -317,12 +341,20 @@ namespace TerrariaKitchen
                             {
                                 Store.ResolvePoolPayment(existingPool);
                             }
+                            else
+                            {
+                                Announce($"Pool #{existingPool.Index} failed to spawn due to spawn conditions not being met, please attempt to complete it later.");
+                            }
                         }
                         else if (existingPool.TargetEvent is KitchenEvent kitchenEvent)
                         {
                             if (kitchenEvent.Start())
                             {
                                 Store.ResolvePoolPayment(existingPool);
+                            }
+                            else
+                            {
+                                Announce($"Event pool #{existingPool.Index} failed to start due to conditions not being met, please attempt to complete it later.");
                             }
                         }
                     }
@@ -483,6 +515,10 @@ namespace TerrariaKitchen
                         {
                             Store.ResolvePoolPayment(existingPool);
                         }
+                        else
+                        {
+                            Announce($"Pool #{existingPool.Index} failed to spawn due to spawn conditions not being met, please attempt to complete it later.");
+                        }
                     }
                     else
                     {
@@ -532,6 +568,10 @@ namespace TerrariaKitchen
                         if (SpawnUnit?.Invoke(mob.InternalName, amount, chatter, buyTarget, false) == true)
                         {
                             Store.ModBalance(chatter, -price);
+                        }
+                        else
+                        {
+                            Reply(chatMessage, $"Failed to buy! You will not be charged and have {Store.GetBalance(chatter)} kitchen credits remaining.");
                         }
                     }
                 }

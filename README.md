@@ -81,9 +81,17 @@ The following is an example of the file
             "MaxBuys": 10
         },
         {
-            "MobName": "eyeofcthulu",
-            "InternalName": 4,
-            "Price": 1000,
+            "MobName": "skeleton",
+            "InternalName": 21,
+            "Price": 100,
+            "NoDay": true,
+            "MaxBuys": 10
+        },
+        {
+            "MobName": "kingslime",
+            "InternalName": 50,
+            "Price": 2000,
+            "NoNight": true,
             "Pooling": true
         }
     ],
@@ -99,6 +107,9 @@ The following is an example of the file
     "Income": 10,
     "IncomeInterval": 60,
     "SubscriberPriceMultiplier": 0.9,
+    "PlayerDeathIncome": 10,
+    "PlayerDeathCreditRefund": 0.2,
+    "SafeSpawnZoneName": "Safe",
     "ModAbuse": false,
     "XRange": 200,
     "YRange": 50,
@@ -113,6 +124,8 @@ With each purchasable mob as a separate entry.
     - `MobAlias` is a list of other similar names that will also be treated as ordering for this entry, also case sensitive
     - `Price` is the credits cost per item
     - `MaxBuys` is the maximum number of purchases that can be made in a single order
+    - `NoDay` defines entry do not spawn during day. Non-wave spawns of this type during the day will fail and not charge the chatter.
+    - `NoNight` defines entry do not spawn during night. Non-wave spawns of this type during the night will fail and not charge the chatter.
     - `Pooling` is whether the mob allows pooling credits from multiple chatters
 - `Events` is a list of events that can be bought by chatters:
     - `EventName` is the name that will be entered into the `!t event` command, case sensitive
@@ -131,10 +144,17 @@ With each purchasable mob as a separate entry.
         - `9`: Martian Madness
         - `10`: Pumpkin Moon
         - `11`: Frost Moon
+        - `12`: Spawn Eye of Cthulu immediately if it's night, otherwise spawn it on the next night
+        - `13`: Spawn Skeletron Prime immediately if it's night, otherwise spawn it on the next night
+        - `14`: Spawn Mechanical Twins immediately if it's night, otherwise spawn it on the next night
+        - `15`: Spawn The Destroyer immediately if it's night, otherwise spawn it on the next night
 - `StartingMoney` is the credits new chatters will start with
 - `Income` is the amount of credits each chatters still in the channel chat room will receive periodically
 - `IncomeInterval` is the number of seconds between each income payout, minimum is 5 seconds.
 - `SubscriberPriceMultiplier` is the price multiplier for channel subscribers
+- `PlayerDeathIncome` is the amount of credits all players will get whenever a player dies
+- `PlayerDeathCreditRefund` is the multiplier of credits price all players will get whenever a player is killed by a purchasable NPC type
+- `SafeSpawnZoneName` is the name of the region marked as safe. If the player the mob spawn is targeting is within the region, the mob will spawn outside the region instead. Note this does not guarantee the region to be completely spawn free.
 - `ModAbuse` being set to true will allow mods to buy any mobs among the entries for free
 - `XRange` is the number of tiles horizontally around the player the mobs can spawn
 - `YRange` is the number of tiles vertically around the player the mobs can spawn

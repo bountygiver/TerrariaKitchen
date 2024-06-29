@@ -34,6 +34,12 @@ namespace TerrariaKitchen
 
         public int IncomeInterval { get; set; } = 60;
 
+        public int PlayerDeathIncome { get; set; } = 0;
+
+        public float PlayerDeathCreditRefund { get; set; } = 0f;
+
+        public string? SafeSpawnZoneName { get; set; }
+
         public int MaxBalance { get; set; } = 5000;
 
         public float SubscriberPriceMultiplier { get; set; } = 1;

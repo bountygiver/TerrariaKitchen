@@ -7,6 +7,8 @@ using Newtonsoft.Json;
 using System.Text;
 using Terraria.Localization;
 using System;
+using Terraria.DataStructures;
+using TShockAPI.DB;
 
 namespace TerrariaKitchen
 {
@@ -35,7 +37,7 @@ namespace TerrariaKitchen
 
         private static readonly string ApiPath = Path.Combine(TShock.SavePath, "kitchenapi.txt");
 
-        private Random randomSeed;
+        public static Random randomSeed = new Random();
 
         public KitchenPlugin(Main game) : base(game)
         {
@@ -60,7 +62,6 @@ namespace TerrariaKitchen
             Store = new KitchenCreditsStore(Config);
             Overlay = new KitchenOverlay(Config);
             _connection = new TwitchConnection(Store, Config, Overlay);
-            randomSeed = new Random();
             _connection.SpawnUnit = SpawnFunc;
 
             if (File.Exists(ApiPath))
@@ -126,7 +127,100 @@ namespace TerrariaKitchen
                 Store.UpdatePlayersToDb();
             });
             ServerApi.Hooks.NpcSpawn.Register(this, RaffleTownNPC);
+            ServerApi.Hooks.NetGetData.Register(this, OnGetData);
             Overlay.StartServer(Config.OverlayPort, Config.OverlayWsPort);
+        }
+
+        private void OnGetData(GetDataEventArgs args)
+        {
+            if (!args.Handled && args.MsgID == PacketTypes.PlayerDeathV2)
+            {
+                using (BinaryReader reader = new BinaryReader(new MemoryStream(args.Msg.readBuffer, args.Index, args.Length)))
+                {
+                    int? mobType = null;
+
+                    byte playerid = reader.ReadByte();
+                    byte deathReason = reader.ReadByte();
+                    short killerId;
+                    short killerNPCIdx;
+                    short projectileIdx;
+                    byte deathType;
+                    short projectileType;
+                    short itemType;
+                    byte itemPrefix;
+                    string deathMsg;
+                    if ((deathReason & 0b1) != 0)
+                    {
+                        killerId = reader.ReadByte();
+                    }
+                    if ((deathReason & 0b10) != 0)
+                    {
+                        killerNPCIdx = reader.ReadInt16();
+                        if (Main.npc.Length > killerNPCIdx)
+                        {
+                            var npc = Main.npc[killerNPCIdx];
+                            if (npc != null)
+                            {
+                                mobType = npc.type;
+                            }
+                        }
+                    }
+                    if ((deathReason & 0b100) != 0)
+                    {
+                        projectileIdx = reader.ReadInt16();
+                        var proj = Main.projectile[projectileIdx];
+                        if (proj.owner >= 0)
+                        {
+                            if (Main.npc.Length > proj.owner)
+                            {
+                                var npc = Main.npc[proj.owner];
+                                if (npc != null)
+                                {
+                                    mobType = npc.type;
+                                }
+                            }
+                        }
+                    }
+                    if ((deathReason & 0b1000) != 0)
+                    {
+                        deathType = reader.ReadByte();
+                    }
+                    if ((deathReason & 0b10000) != 0)
+                    {
+                        projectileType = reader.ReadInt16();
+                    }
+                    if ((deathReason & 0b100000) != 0)
+                    {
+                        itemType = reader.ReadInt16();
+                    }
+                    if ((deathReason & 0b1000000) != 0)
+                    {
+                        itemPrefix = reader.ReadByte();
+                    }
+                    if ((deathReason & 0b10000000) != 0)
+                    {
+                        deathMsg = reader.ReadString();
+                    }
+                    short damage = reader.ReadInt16();
+                    byte hitDirection = reader.ReadByte();
+                    byte flags = reader.ReadByte();
+
+                    var player = Main.player[playerid];
+
+                    var distributeAmt = Config.PlayerDeathIncome;
+
+                    if (mobType != null && Config.Entries.FirstOrDefault(e => e.InternalName == mobType) is KitchenConfig.KitchenEntry entry)
+                    {
+                        distributeAmt += (int) (entry.Price * Config.PlayerDeathCreditRefund);
+                    }
+
+                    if (distributeAmt > 0)
+                    {
+                        Store.DistributeIncome(distributeAmt);
+                        _connection?.Announce($"{player.name} died. Distributed {distributeAmt} credits to all chatters.");
+                    }
+                }
+            }
         }
 
         private void RaffleTownNPC(NpcSpawnEventArgs args)
@@ -147,7 +241,7 @@ namespace TerrariaKitchen
                 if (raffleNames.Any())
                 {
                     var raffled = raffleNames.ElementAt(randomSeed.Next(raffleNames.Count()));
-                    TSPlayer.All.SendSuccessMessage($"{raffled} has been raffled as {npc.GivenName}!");
+                    TSPlayer.All.SendSuccessMessage($"{raffled} has been raffled as {npc.TypeName}!");
                     npc.GivenName = raffled;
                     NetMessage.SendData(56, -1, -1, NetworkText.FromLiteral(npc.GivenName), args.NpcId);
                 }
@@ -227,6 +321,50 @@ namespace TerrariaKitchen
 
             Overlay?.SendPacket(new { @event = "initialize" });
         }
+        private void SpawnNPC(int type, string name, int amount, int startTileX, int startTileY, int tileXRange, int tileYRange)
+        {
+            Region? zone = null;
+            if (Config.SafeSpawnZoneName != null)
+            {
+                zone = TShock.Regions.GetRegionByName(Config.SafeSpawnZoneName);
+            }
+            var inSafeZone = zone?.InArea(startTileX, startTileY) == true;
+            for (int i = 0; i < amount; i++)
+            {
+                int tileX, tileY;
+                if (inSafeZone)
+                {
+                    if (randomSeed.Next(2) == 0)
+                    {
+                        TShock.Utils.GetRandomClearTileWithInRange(zone.Area.Left - tileXRange, startTileY, tileXRange, tileYRange, out tileX, out tileY);
+                    }
+                    else
+                    {
+                        TShock.Utils.GetRandomClearTileWithInRange(zone.Area.Right + tileXRange, startTileY, tileXRange, tileYRange, out tileX, out tileY);
+                    }
+                }
+                else
+                {
+                    TShock.Utils.GetRandomClearTileWithInRange(startTileX, startTileY, tileXRange, tileYRange, out tileX, out tileY);
+
+                    int tries = 10;
+                    while (zone?.InArea(tileX, tileY) == true && tries > 0)
+                    {
+                        if (startTileX < tileX)
+                        {
+                            startTileX -= tileXRange;
+                        }
+                        else
+                        {
+                            startTileX += tileXRange;
+                        }
+                        TShock.Utils.GetRandomClearTileWithInRange(startTileX, startTileY, tileXRange, tileYRange, out tileX, out tileY);
+                        tries--;
+                    }
+                }
+                NPC.NewNPC(new EntitySource_DebugCommand(), tileX * 16, tileY * 16, type);
+            }
+        }
 
         private bool SpawnFunc(int mobId, int count, string? sender = null, string? targetPlayer = null, bool silent = false)
         {
@@ -241,6 +379,20 @@ namespace TerrariaKitchen
             if (!players.Any())
             {
                 return false;
+            }
+
+
+            if (!silent && Config.Entries.FirstOrDefault(e => e.InternalName == mobId) is KitchenConfig.KitchenEntry entry)
+            {
+                if (entry.NoDay && Main.dayTime)
+                {
+                    return false;
+                }
+
+                if (entry.NoNight && !Main.dayTime)
+                {
+                    return false;
+                }
             }
 
             if (mobId == 113)
@@ -291,7 +443,7 @@ namespace TerrariaKitchen
                     successMsg.Append($" for {targetPlayer}");
                 }
                 successMsg.Append("!");
-                TSPlayer.Server.SpawnNPC(nPC.netID, nPC.FullName, result, spawnPlayer.TileX, spawnPlayer.TileY, Config.XRange ?? 50, Config.YRange ?? 20);
+                SpawnNPC(nPC.netID, nPC.FullName, result, spawnPlayer.TileX, spawnPlayer.TileY, Config.XRange ?? 50, Config.YRange ?? 20);
                 if (!silent)
                 {
                     TSPlayer.All.SendSuccessMessage(successMsg.ToString());
