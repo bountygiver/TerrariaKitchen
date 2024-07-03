@@ -6,7 +6,6 @@ using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
 using System.Text;
 using Terraria.Localization;
-using System;
 using Terraria.DataStructures;
 using TShockAPI.DB;
 
@@ -17,11 +16,11 @@ namespace TerrariaKitchen
     {
         public override string Author => "bountygiver";
 
-        public override string Description => "Connect to some sort of chat so chatter can buy mob spawns!";
+        public override string Description => "Connect to twitch chat so chatter can buy mob spawns!";
 
         public override string Name => "Terraria Kitchen";
 
-        public override Version Version => new Version(1, 0, 0, 0);
+        public override Version Version => new Version(1, 0, 1, 0);
 
         private TwitchConnection _connection;
 
@@ -35,7 +34,7 @@ namespace TerrariaKitchen
 
         public KitchenConfig Config { get; private set; }
 
-        private static readonly string ApiPath = Path.Combine(TShock.SavePath, "kitchenapi.txt");
+        internal static readonly string ApiPath = Path.Combine(TShock.SavePath, "kitchenapi.txt");
 
         public static Random randomSeed = new Random();
 
@@ -45,8 +44,21 @@ namespace TerrariaKitchen
             {
                 try
                 {
-                    Config = JsonConvert.DeserializeObject<KitchenConfig>(File.ReadAllText(KitchenConfigPath));
-                    Console.WriteLine($"(Terraria Kitchen) Config found! Loaded menu with {Config.Entries?.Count ?? 0} items!");
+                    var configFile = File.ReadAllText(KitchenConfigPath);
+                    if (!string.IsNullOrEmpty(configFile))
+                    {
+#pragma warning disable CS8601 // Already null checked
+                        Config = JsonConvert.DeserializeObject<KitchenConfig>(configFile);
+#pragma warning restore CS8601
+                    }
+                    if (Config != null)
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) Config found! Loaded menu with {Config.Entries?.Count ?? 0} items!");
+                    }
+                    else
+                    {
+                        throw new Exception("Failed to load config");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -64,9 +76,34 @@ namespace TerrariaKitchen
                 Config = new KitchenConfig();
             }
             Store = new KitchenCreditsStore(Config);
-            Overlay = new KitchenOverlay(Config);
-            _connection = new TwitchConnection(Store, Config, Overlay);
-            _connection.SpawnUnit = SpawnFunc;
+            Overlay = new KitchenOverlay(Config)
+            {
+                WebhookResponse = (s) =>
+                {
+                    try
+                    {
+                        var j = JsonConvert.DeserializeObject<Dictionary<string, string>>(s);
+
+                        if (j?.TryGetValue("type", out var requestType) == true)
+                        {
+                            switch (requestType)
+                            {
+                                case "getMenu":
+                                    return JsonConvert.SerializeObject(new { @event = "menuResponse", Config.Entries, Config.Events });
+                            }
+                        }
+                    }
+                    catch
+                    {
+
+                    }
+                    return string.Empty;
+                }
+            };
+            _connection = new TwitchConnection(Store, Config, Overlay)
+            {
+                SpawnUnit = SpawnFunc
+            };
 
             if (File.Exists(ApiPath))
             {
@@ -79,7 +116,15 @@ namespace TerrariaKitchen
             if (!_connection.HasAPIKey())
             {
                 Console.WriteLine("(Terraria Kitchen) Twitch API key not set. You will need to run /setkitchenkey <API key> before you can start kitchen. You can place the apikey in a tshock\\kitchenapi.txt to have it set automatically.");
-                Console.WriteLine("(Terraria Kitchen) Visit https://dev.twitch.tv/docs/irc/authenticate-bot/ for more information about getting an API key.");
+                if (Config.OverlayPort == 7770)
+                {
+                    Console.WriteLine($"(Terraria Kitchen) You may authenticate by visiting http://localhost:7770/connectTwitch");
+                }
+                else
+                {
+                    Console.WriteLine("(Terraria Kitchen) You may use the default port for your \"OverlayPort\" settings at 7770 for the plugin to autheticate your account with 2 clicks.");
+                    Console.WriteLine("(Terraria Kitchen) Visit https://dev.twitch.tv/docs/irc/authenticate-bot/ for more information about getting an API key.");
+                }
             }
         }
 
@@ -93,6 +138,34 @@ namespace TerrariaKitchen
                 Overlay.SendPacket(new { @event = "reset" });
             }, "resetkitchen") { HelpText = "Reset all chatter balance in the current world." });
             Commands.ChatCommands.Add(new Command(Permissions.spawn, GiveMoney, "kitchengive") { HelpText = "Give a chatter an amount of credits." });
+            Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) =>
+            {
+                var timeout = 120;
+                if (args.Parameters.Count == 1)
+                {
+                    if (!int.TryParse(args.Parameters[0], out timeout))
+                    {
+                        args.Player.SendErrorMessage("Invalid syntax, use /kitchenpredict <optional timeout in seconds, default=30>");
+                        return;
+                    }
+                }
+                else if (args.Parameters.Count > 1)
+                {
+                    args.Player.SendErrorMessage("Invalid syntax, use /kitchenpredict <optional timeout in seconds, default=30>");
+                    return;
+                }
+                if (timeout < 30 || timeout > 1800)
+                {
+                    args.Player.SendErrorMessage("Invalid timeout value, it must be between 30 and 1800 seconds.");
+                    return;
+                }
+                _connection.StartPredictionSystem(timeout);
+            }, "kitchenpredict") { HelpText = "Starts prediction for next player death." });
+            Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) =>
+            {
+                _connection.StopPredictionSystem();
+            }, "kitchenpredictstop")
+            { HelpText = "Disable renewal of player death prediction system." });
             Commands.ChatCommands.Add(new Command(Permissions.spawn, (args) =>
             {
                 try
@@ -287,7 +360,7 @@ namespace TerrariaKitchen
 
         private void StartKitchen(CommandArgs args)
         {
-            if (args.Parameters.Count < 1 || args.Parameters.Count > 2)
+            if (args.Parameters.Count > 2)
             {
                 args.Player.SendErrorMessage("Invalid syntax, use /startkitchen <channelname> <optional playername>");
                 return;
@@ -319,9 +392,10 @@ namespace TerrariaKitchen
             {
                 args.Player.SendInfoMessage("No players specified, all players are now eligible customers...");
             }
-            _connection.Initialize(args.Parameters[0], () =>
+            _connection.Initialize(args.Parameters.Count > 0 ? args.Parameters[0] : string.Empty, () =>
             {
                 args.Player.SendInfoMessage("(Terraria Kitchen) Connected to twitch chat.");
+                _connection.CheckExtensions();
             }, () =>
             {
                 args.Player.SendInfoMessage("(Terraria Kitchen) Disconnected from twitch chat.");

@@ -1,15 +1,9 @@
 ﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection.Emit;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using TShockAPI;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace TerrariaKitchen
 {
@@ -25,7 +19,12 @@ namespace TerrariaKitchen
 
         private KitchenConfig Config;
 
+        internal Func<string, string>? WebhookResponse;
+
         public event EventHandler<NetworkStream>? NewConnection;
+
+        public event EventHandler<string>? SetAPIKey;
+
         public KitchenOverlay(KitchenConfig config)
         {
             wsStreams = new List<NetworkStream>();
@@ -74,7 +73,7 @@ namespace TerrariaKitchen
                         HttpListenerRequest req = ctx.Request;
                         HttpListenerResponse resp = ctx.Response;
 
-                        byte[] data = req.Url?.AbsolutePath == "/menu" ? Encoding.UTF8.GetBytes(MenuHtml()) : Encoding.UTF8.GetBytes(KitchenOverlayHtml.GeneratePage($"{req.Url?.Host}:{(wsServer?.LocalEndpoint as IPEndPoint)?.Port ?? Config.OverlayWsPort}"));
+                        byte[] data = Encoding.UTF8.GetBytes(GetResponseData(req.Url));
                         resp.ContentType = "text/html";
                         resp.ContentEncoding = Encoding.UTF8;
                         resp.ContentLength64 = data.LongLength;
@@ -82,11 +81,14 @@ namespace TerrariaKitchen
                         // Write out to the response stream (asynchronously), then close it
                         await resp.OutputStream.WriteAsync(data, 0, data.Length);
                         resp.Close();
+
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         if (!ShuttingDown)
                         {
+                            TShock.Log.Error("(Terraria Kitchen Error) - " + ex.Message);
+                            TShock.Log.Error(ex.StackTrace);
                             Console.WriteLine("(Terraria Kitchen) An error is detected with the HTTP server.");
                         }
                     }
@@ -95,6 +97,80 @@ namespace TerrariaKitchen
             { IsBackground = true }.Start();
         }
 
+        private string textBody(string title, string body)
+        {
+            return $"<html><head><title>{WebUtility.HtmlEncode(title)}</title></head><body>{WebUtility.HtmlEncode(body)}</body></html>";
+        }
+
+        private string GetResponseData(Uri? uri)
+        {
+            var queryText = uri?.Query;
+            if (queryText?.StartsWith("?") == true)
+            {
+                queryText = queryText.Substring(1);
+            }
+            var queries = queryText?.Split("&").ToDictionary(s => WebUtility.UrlDecode(s.Split("=")[0]), s => WebUtility.UrlDecode(s.Substring(s.IndexOf('=') + 1)));
+            switch (uri?.AbsolutePath)
+            {
+                case "/menu":
+                    return MenuHtml();
+                case "/connectTwitch":
+                    return $@"<html><head><title>{WebUtility.HtmlEncode("Connect Terraria Kitchen with Twitch")}</title></head>
+<body>
+<div style='margin: auto; text-align: center;'>
+    <h1>Connect with your twitch account to let this plugin read chat and response to commands!</h1>
+    <a href='{GetAuthUrl()}' style='display: inline-block;
+    padding: 0.375rem 0.375rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: white;
+    text-decoration: none;
+    vertical-align: middle;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    border: 1px solid #0d6efd;
+    border-radius: 0.375rem;
+    background-color: purple;
+    transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out;'>Connect with Twitch</a>
+</div>
+</body>
+</html>";
+                case "/registerauth":
+                    if (CSRFSecret == null || queries?.ContainsKey("state") != true || queries["state"] != CSRFSecret)
+                    {
+                        return textBody("Terraria Kitchen Auth", "CSRF mismatch, authorization ignored. If you are attempting to authorize Terraria Kitchen, please restart the server and use the new URL.");
+                    }
+                    CSRFSecret = null;
+                    if (queries.TryGetValue("access_token", out var token))
+                    {
+                        SetAPIKey?.Invoke(this, token);
+                        if (!File.Exists(KitchenPlugin.ApiPath))
+                        {
+                            File.WriteAllText(KitchenPlugin.ApiPath, token);
+                        }
+                        Console.WriteLine("");
+                        return textBody("Terraria Kitchen Auth", "Authorization success, you may now close this window.");
+                    }
+                    return textBody("Terraria Kitchen Auth", "Failed to authorize, please restart the server and use the new URL.");
+                case "/auth":
+                    if (queries?.TryGetValue("error_description", out var errorDesc) == true)
+                    {
+                        return textBody("Terraria Kitchen Auth", $"Error: {errorDesc}");
+                    }
+
+                    return @"<html><body></body><script>
+(function() {
+if(window.location.hash) window.location = 'http://localhost:7770/registerauth?' + window.location.hash.substr(1);
+})();
+</script></html>";
+                default:
+                    break;
+            }
+            return KitchenOverlayHtml.GeneratePage($"{uri?.Host}:{(wsServer?.LocalEndpoint as IPEndPoint)?.Port ?? Config.OverlayWsPort}");
+        }
 
         public enum EOpcodeType
         {
@@ -282,8 +358,20 @@ namespace TerrariaKitchen
 
                                 string text = Encoding.UTF8.GetString(decoded);
 
-                                var response = GetFrameFromString("PONG " + text);
-                                stream.Write(response, 0, response.Length);
+                                if (text.StartsWith("PING "))
+                                {
+                                    var response = GetFrameFromString("PONG " + text.Substring(5));
+                                    stream.Write(response, 0, response.Length);
+                                }
+                                else
+                                {
+                                    var resText = WebhookResponse?.Invoke(text);
+                                    if (!string.IsNullOrEmpty(resText))
+                                    {
+                                        var responseBytes = GetFrameFromString(resText);
+                                        stream.Write(responseBytes, 0, responseBytes.Length);
+                                    }
+                                }
                             }
                         }
                     }
@@ -326,6 +414,34 @@ namespace TerrariaKitchen
             ShuttingDown = true;
             httpListener?.Abort();
             wsServer?.Stop();
+        }
+
+        public string? CSRFSecret { get; private set; }
+
+        private readonly string[] Scopes = new string[]
+        {
+            "channel:manage:predictions",
+            "chat:read",
+            "chat:edit",
+            "moderator:read:chatters",
+            "user:read:broadcast",
+            "whispers:edit",
+        };
+
+        private string GetAuthUrl()
+        {
+            CSRFSecret = Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+            var queries = new[]
+            {
+                new KeyValuePair<string, string>("client_id", TwitchConnection.clientId),
+                new KeyValuePair<string, string>("redirect_uri", "http://localhost:7770/auth"),
+                new KeyValuePair<string, string>("response_type", "token"),
+                new KeyValuePair<string, string>("scope", string.Join(" ", Scopes)),
+                new KeyValuePair<string, string>("state", CSRFSecret),
+            };
+
+
+            return new Uri("https://id.twitch.tv/oauth2/authorize?" + string.Join("&", queries.Select(q => $"{WebUtility.UrlEncode(q.Key)}={WebUtility.UrlEncode(q.Value)}"))).ToString();
         }
     }
 }

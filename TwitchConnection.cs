@@ -2,9 +2,8 @@
 using System.Net.Sockets;
 using Terraria;
 using TShockAPI;
-using TwitchLib.Api.Core.Models.Undocumented.Chatters;
-using TwitchLib.Api.Helix.Models.Charity.GetCharityCampaign;
-using TwitchLib.Api.Helix.Models.Chat.GetChatters;
+using TwitchLib.Api;
+using TwitchLib.Api.Helix.Models.Predictions;
 using TwitchLib.Client;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
@@ -16,6 +15,8 @@ namespace TerrariaKitchen
     public class TwitchConnection
     {
         public string? ChannelName { get; private set; }
+
+        public string? BroadcasterId { get; private set; }
 
         public Func<int, int, string, string?, bool, bool>? SpawnUnit { get; set; }
 
@@ -37,6 +38,14 @@ namespace TerrariaKitchen
 
         private Timer? incomeTimer;
 
+        private TwitchAPI? twitchAPI;
+
+        private KitchenPredictionManager PredictionManager;
+
+        private Timer? userCheckTimer;
+
+        internal static readonly string clientId = "8ympqmccqqcicddjde30dbswk0fpso";
+
         public TwitchConnection(KitchenCreditsStore store, KitchenConfig config, KitchenOverlay overlay)
         {
             Store = store;
@@ -46,6 +55,138 @@ namespace TerrariaKitchen
             Config = config;
             MessageRateLimit = 0;
             Overlay.NewConnection += UpdateOverlay;
+            Overlay.SetAPIKey += (sender, e) => SetAPIKey(e);
+            PredictionManager = new KitchenPredictionManager();
+            PredictionManager.OnConnectedHandler = async (session_id) =>
+            {
+                Console.WriteLine("(Terraria Kitchen) Prediction Manager Websocket connected.");
+                if (!string.IsNullOrEmpty(session_id) && HasAPIKey() && twitchAPI != null && BroadcasterId != null)
+                {
+                    var subPayload = await twitchAPI.Helix.EventSub.CreateEventSubSubscriptionAsync("channel.prediction.lock", "1", new Dictionary<string, string> { { "broadcaster_user_id", BroadcasterId } }, TwitchLib.Api.Core.Enums.EventSubTransportMethod.Websocket, session_id);
+                    Console.WriteLine($"(Terraria Kitchen) Prediction Manager Websocket subscribed to events. {subPayload.TotalCost}/{subPayload.MaxTotalCost}");
+                    return true;
+                }
+                return false;
+            };
+            PredictionManager.OnPredictionEnd += (sender, predictionData) =>
+            {
+                if (predictionData.Id == predictionId)
+                {
+                    predictionLocked = true;
+                    PredictionOutcomes = predictionData.Outcomes;
+                }
+            };
+        }
+
+        private async Task<bool> RegisterChannel(string channelName)
+        {
+
+            if (!HasAPIKey())
+            {
+                Console.WriteLine("nokey");
+                return false;
+            }
+
+            if (twitchAPI == null) 
+            {
+                Console.WriteLine("noapi");
+                return false;
+            }
+
+            var auth = await twitchAPI.Auth.ValidateAccessTokenAsync();
+
+            if (auth == null)
+            {
+                Console.WriteLine("noauth");
+                return false;
+            }
+
+            if (!auth.Scopes.Any(s => s == "chat:read") || !auth.Scopes.Any(s => s == "chat:edit"))
+            {
+                Console.WriteLine("(Terraria Kitchen) Error: API token has no chat capability! Plugin will not work until you get a new API key with those capability.");
+                return false;
+            }
+
+            var channelId = auth.UserId;
+            if (!string.IsNullOrEmpty(channelName))
+            {
+                var targetChannel = await twitchAPI.Helix.Users.GetUsersAsync(logins: new List<string> { channelName });
+                if (targetChannel?.Users == null || targetChannel.Users.Length < 1 )
+                {
+                    Console.WriteLine($"(Terraria Kitchen) Failed to get user information for {channelName}!");
+                    return false;
+                }
+                channelId = targetChannel.Users[0].Id;
+            }
+            var channel = await twitchAPI.Helix.Channels.GetChannelInformationAsync(channelId);
+            if (channel == null || channel.Data == null || channel?.Data.Length < 1)
+            {
+                Console.WriteLine("(Terraria Kitchen) Failed to get channel data!");
+                return false;
+            }
+            ChannelName = channel?.Data[0].BroadcasterLogin;
+            BroadcasterId = channel?.Data[0].BroadcasterId;
+
+            if (!auth.Scopes.Any(s => s == "moderator:read:chatters"))
+            {
+                Console.WriteLine("(Terraria Kitchen) Warning: Token has no permission to read chatters! This extension may behave unexpectedly if you have more than 1000 viewers!");
+                return true;
+            }
+
+            userCheckTimer?.Dispose();
+            userCheckTimer = new Timer(async (CheckUsers) => {
+                if (HasAPIKey() && twitchAPI != null && ChannelName != null)
+                {
+                    if (Store.CurrentChatters.Count > 500)
+                    {
+                        var userResponse = await twitchAPI.Helix.Chat.GetChattersAsync(channelId, auth.UserId, 1000);
+                        if (userResponse == null) 
+                        {
+                            return;
+                        }
+                        var currentFetchUsers = userResponse.Data.Select(c => c.UserLogin).ToList();
+                        while (userResponse.Pagination?.Cursor?.Length > 0)
+                        {
+                            userResponse = await twitchAPI.Helix.Chat.GetChattersAsync(BroadcasterId, auth.UserId, 1000, userResponse.Pagination.Cursor);
+                            currentFetchUsers.AddRange(userResponse.Data.Select(c => c.UserLogin));
+                        }
+
+                        lock(Store.CurrentChatters)
+                        {
+                            Store.CurrentChatters.Clear();
+                            foreach (var chatter in currentFetchUsers)
+                            {
+                                Store.CurrentChatters.Add(chatter);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    userCheckTimer?.Dispose();
+                }
+            }, null, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5));
+
+            return true;
+        }
+
+        public async void CheckExtensions()
+        {
+            if (!string.IsNullOrEmpty(BroadcasterId) && twitchAPI != null)
+            {
+                var extensions = await twitchAPI.Helix.Users.GetUserActiveExtensionsAsync(BroadcasterId);
+                if (extensions?.Data?.Panel?.Count > 0)
+                {
+                    if (extensions.Data.Panel.Select(s => s.Value).FirstOrDefault(p => p.Id == "h3182leiok8hc0cxufn3qgewcy8p2n" && p.Active) is TwitchLib.Api.Helix.Models.Users.Internal.UserActiveExtension ext)
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) {ext.Name} {ext.Version} detected, you may activate the extension live config from your stream manager page to broadcast the kitchen status to chatters!");
+                    }
+                    else
+                    {
+                        Console.WriteLine("(Terraria Kitchen) T-Kitchen plugin not installed.");
+                    }
+                }
+            }
         }
 
         private void UpdateOverlay(object? sender, NetworkStream stream)
@@ -111,7 +252,7 @@ namespace TerrariaKitchen
             TwitchClient.SendReply(msg.Channel, msg.Id, txt);
         }
 
-        public void Initialize(string channelName, Action onConnected, Action onDisconnected)
+        public async void Initialize(string channelName, Action onConnected, Action onDisconnected)
         {
             if (TwitchClient?.IsConnected == true)
             {
@@ -121,7 +262,18 @@ namespace TerrariaKitchen
                 }
                 TwitchClient.Disconnect();
             }
-            ChannelName = channelName;
+            if (!await RegisterChannel(channelName))
+            {
+                if (HasAPIKey())
+                {
+                    Console.WriteLine("(Terraria Kitchen} API key expired! Please get a new api key!");
+                }
+                else
+                {
+                    Console.WriteLine("(Terraria Kitchen} API key required!");
+                }
+                return;
+            }
 
             var clientOptions = new ClientOptions
             {
@@ -157,10 +309,13 @@ namespace TerrariaKitchen
                 Overlay.SendPacket(new { @event = "disconnect" });
             };
             TwitchClient.OnMessageReceived += HandleMessage;
-            TwitchClient.OnExistingUsersDetected += (sender, e) => { 
-                foreach (var user in e.Users)
+            TwitchClient.OnExistingUsersDetected += (sender, e) => {
+                lock (Store.CurrentChatters)
                 {
-                    Store.CurrentChatters.Add(user.ToLower());
+                    foreach (var user in e.Users)
+                    {
+                        Store.CurrentChatters.Add(user.ToLower());
+                    }
                 }
             };
             TwitchClient.OnUserJoined += (sender, e) => Store.CurrentChatters.Add(e.Username.ToLower());
@@ -582,9 +737,180 @@ namespace TerrariaKitchen
         public void SetAPIKey(string apiKey)
         {
             this.apiKey = apiKey;
+            if (HasAPIKey())
+            {
+                twitchAPI = new TwitchAPI(rateLimiter: TwitchLib.Api.Core.RateLimiter.TimeLimiter.Compose(new TwitchLib.Api.Core.RateLimiter.CountByIntervalAwaitableConstraint(100, TimeSpan.FromMinutes(1))));
+                twitchAPI.Settings.ClientId = clientId;
+                twitchAPI.Settings.AccessToken = apiKey;
+            }
+            else
+            {
+                twitchAPI = null;
+            }
         }
 
         public bool HasAPIKey() => apiKey != null;
+
+        private string? predictionId;
+
+        private bool predictionLocked = false;
+
+        private bool predictionEnabled = true;
+
+        private int predictionTimeout = 120;
+
+        private Dictionary<string, string> PredictionOutcomes = new Dictionary<string, string>();
+
+        public async void StartPredictionSystem(int timeout = 120)
+        {
+            if (HasAPIKey() && twitchAPI != null && ChannelName != null)
+            {
+                var auth = await twitchAPI.Auth.ValidateAccessTokenAsync();
+
+                if (auth == null)
+                {
+                    Console.WriteLine("noauth");
+                    return;
+                }
+
+                if (!auth.Scopes.Any(s => s == "channel:manage:predictions"))
+                {
+                    TSPlayer.All.SendErrorMessage($"(Terraria Kitchen) Unable to start prediction.");
+                    Console.WriteLine("(Terraria Kitchen) Error: API token has no manage prediction capability. Cannot start prediction.");
+                    return;
+                }
+
+                if (!PredictionManager.Ready)
+                {
+                    await PredictionManager.StartSubscription();
+                }
+
+                var cts = new CancellationTokenSource();
+                await Task.WhenAny(Task.Delay(10000), new Task(async () => { while (!cts.IsCancellationRequested && PredictionManager?.Ready != true) { await Task.Delay(100); } }, cts.Token));
+                cts.Cancel();
+                if (PredictionManager?.Ready != true)
+                {
+                    Console.WriteLine("(Terraria Kitchen) Prediction Manager not ready, unable to start prediction.");
+                    return;
+                }
+                Console.WriteLine("(Terraria Kitchen) Prediction system started.");
+                if (predictionTimeout >= 30 && predictionTimeout <= 1800) 
+                { 
+                    predictionTimeout = timeout;
+                }
+                else
+                {
+                    predictionTimeout = 120;
+                }
+                predictionEnabled = true;
+                StartPlayerDeathPrediction();
+            }
+        }
+
+        public void StopPredictionSystem()
+        {
+            predictionEnabled = false;
+        }
+
+        public async void StartPlayerDeathPrediction()
+        {
+            if (!predictionEnabled)
+            {
+                return;
+            }
+            var playerNames = TShock.Players.Where(p => p != null && p.Active && p.RealPlayer).Select(p => p.Name);
+            if (playerNames.Count() < 2)
+            {
+                TSPlayer.All.SendErrorMessage($"(Terraria Kitchen) Not enough players online to start a prediction!");
+                return;
+            }
+            if (HasAPIKey() && twitchAPI != null && BroadcasterId != null)
+            {
+                if (string.IsNullOrEmpty(ChannelName))
+                {
+                    return;
+                }
+                try
+                {
+                    if (!string.IsNullOrEmpty(predictionId))
+                    {
+                        var getPrediction = await twitchAPI.Helix.Predictions.GetPredictionsAsync(BroadcasterId, new List<string> { predictionId });
+                        if (getPrediction.Data?.FirstOrDefault() is Prediction p)
+                        {
+                            if (p.Status == TwitchLib.Api.Core.Enums.PredictionStatus.ACTIVE || p.Status == TwitchLib.Api.Core.Enums.PredictionStatus.LOCKED)
+                            {
+                                // A prediction is ongoing, ignore...
+                                return;
+                            }
+                        }
+                        predictionId = null;
+                        predictionLocked = false;
+                    }
+                    var selectedPlayers = playerNames.ToList();
+                    if (playerNames.Count() > 10)
+                    {
+                        while (selectedPlayers.Count > 9)
+                        {
+                            selectedPlayers.RemoveAt(KitchenPlugin.randomSeed.Next(selectedPlayers.Count));
+                        }
+                    }
+                    if (selectedPlayers.Count < playerNames.Count())
+                    {
+                        selectedPlayers.Add("[Other]");
+                    }
+                    var predictionSettings = new TwitchLib.Api.Helix.Models.Predictions.CreatePrediction.CreatePredictionRequest
+                    {
+                        BroadcasterId = BroadcasterId,
+                        Title = "Which player will die next? (Only counts after prediction is locked.)",
+                        PredictionWindowSeconds = predictionTimeout,
+                        Outcomes = selectedPlayers.Select(p => new TwitchLib.Api.Helix.Models.Predictions.CreatePrediction.Outcome { Title = p }).ToArray(),
+                    };
+                    var startPrediction = await twitchAPI.Helix.Predictions.CreatePredictionAsync(predictionSettings);
+                    if (startPrediction?.Data?.Length > 0)
+                    {
+                        predictionId = startPrediction.Data[0].Id;
+                        predictionLocked = false;
+                    }
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("(Terraria Kitchen) Problem starting prediction!");
+                }
+            }
+        }
+
+        public async void InvokePlayerDeath(string playerName)
+        {
+            if (predictionLocked && !string.IsNullOrEmpty(predictionId) && HasAPIKey() && twitchAPI != null && !string.IsNullOrEmpty(BroadcasterId) && PredictionOutcomes != null)
+            {
+                try
+                {
+                    if (PredictionOutcomes.TryGetValue(playerName, out var resolveOut))
+                    {
+                        await twitchAPI.Helix.Predictions.EndPredictionAsync(BroadcasterId, predictionId, TwitchLib.Api.Core.Enums.PredictionEndStatus.RESOLVED, resolveOut);
+                    }
+                    else if (PredictionOutcomes.TryGetValue("[Other]", out var resolveOther))
+                    {
+                        await twitchAPI.Helix.Predictions.EndPredictionAsync(BroadcasterId, predictionId, TwitchLib.Api.Core.Enums.PredictionEndStatus.RESOLVED, resolveOther);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) Player not in prediction died.");
+                        return;
+                    }
+                    predictionId = null;
+                    predictionLocked = false;
+                    await Task.Delay(5000);
+                    StartPlayerDeathPrediction();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"(Terraria Kitchen) Prediction Error");
+                    TShock.Log.Error("(Terraria Kitchen Error) - " + ex.Message);
+                    TShock.Log.Error(ex.StackTrace);
+                }
+            }
+        }
 
         public void Dispose()
         {
@@ -592,7 +918,9 @@ namespace TerrariaKitchen
             {
                 TwitchClient.Disconnect();
             }
+            PredictionManager?.Dispose();
             incomeTimer?.Dispose();
+            userCheckTimer?.Dispose();
         }
     }
 }

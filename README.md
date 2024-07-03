@@ -19,6 +19,13 @@ you can then build the plugin locally. In order to make sure all dependencies ar
 - `TwitchLib.Client.Enums.dll`
 - `TwitchLib.Client.Models.dll`
 - `TwitchLib.Communication.dll`
+- `TwitchLib.Api.Core.dll`
+- `TwitchLib.Api.Core.Enums.dll`
+- `TwitchLib.Api.Core.Interfaces.dll`
+- `TwitchLib.Api.Core.Models.dll`
+- `TwitchLib.Api.dll`
+- `TwitchLib.Api.Helix.dll`
+- `TwitchLib.Api.Helix.Models.dll`
 
 Afterwards you will need to configure your twitch api, you can either do it through console command `/setkitchenkey <api key>` or put the key in `kitchenapi.txt` inside the `tshock` subfolder within Tshock installation. And also configure your settings by adding a `kitchen.json` in the same folder with the format in the [Configuration section](#Configuration).
 
@@ -34,6 +41,12 @@ Give twitch chat user with \<username> as their display name \<amount> of chat c
 
 ### /kitchenmenuupdate
 Refresh most settings by re-reading from `kitchen.json` without restarting the server. Note that ports changes will not be updated and existing pools and waves will also not be affected.
+
+### /kitchenpredict \<optional timeout>
+Starts the prediction system. A prediction that have a \<timeout> window to make predictions will start, and ends when one of the players among the prediction option dies, and after 5s, a new prediction will be started again.
+
+### /kitchenpredictstop
+Stops renewing a prediction for player deaths after the current one ends.
 
 ## Twitch Chat commands
 Twitch chat commands are throttled so only 1 command will be processed per unique user every 5 seconds.

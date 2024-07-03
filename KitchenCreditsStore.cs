@@ -1,5 +1,4 @@
 ﻿using Microsoft.Data.Sqlite;
-using TwitchLib.Api.Helix.Models.Chat.GetChatters;
 
 namespace TerrariaKitchen
 {
