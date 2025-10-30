@@ -32,13 +32,12 @@ jobs:
       with:
         dotnet-version: '6.0.x'
     - name: Build TShock
-      working-directory: './tshock'
-      run: dotnet build
+      working-directory: './tshock/TShockLauncher'
+      run: dotnet publish -r win-x64 -f net9.0 -c Release -p:PublishSingleFile=true --self-contained false
     - name: Copy Tshock Files
       shell: bash
       run: |
-          cp ./tshock/TShockLauncher/bin/Debug/net6.0/OTAPI.dll ./
-          cp ./TShock/TShockAPI/bin/Debug/net6.0/* ./
+          cp ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/ServerPlugins/TShockAPI.dll ./
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
