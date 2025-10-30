@@ -33,13 +33,12 @@ jobs:
         dotnet-version: '6.0.x'
     - name: Build TShock
       working-directory: './tshock'
-      run: |
-          dotnet restore
-          dotnet build --no-restore
+      run: dotnet build
     - name: Copy Tshock Files
+      shell: bash
       run: |
-          cp ./tshock/TShockLauncher/bin/Debug/net9.0/bin ./
-          cp ./TShock/TShockAPI/bin/Debug/net9.0/* ./
+          cp ./tshock/TShockLauncher/bin/Debug/net6.0/OTAPI.dll ./
+          cp ./TShock/TShockAPI/bin/Debug/net6.0/* ./
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
