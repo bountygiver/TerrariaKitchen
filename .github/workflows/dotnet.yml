@@ -41,6 +41,7 @@ jobs:
     - name: Copy Tshock Files
       run: |
           cp ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/ServerPlugins/TShockAPI.dll ./
+          rm -rf ./tshock
     - name: Restore dependencies
       run: dotnet restore TerrariaKitchen.csproj
     - name: Build
