@@ -33,7 +33,7 @@ jobs:
         dotnet-version: '6.0.x'
     - name: Build TShock
       working-directory: './tshock/TShockLauncher'
-      run: dotnet publish -r win-x64 -f net9.0 -c Release -p:PublishSingleFile=true --self-contained false
+      run: dotnet publish -r win-x64 -f net6.0 -c Release -p:PublishSingleFile=true --self-contained false
     - name: Copy Tshock Files
       shell: bash
       run: |
