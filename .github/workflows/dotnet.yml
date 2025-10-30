@@ -16,28 +16,31 @@ on:
 
 jobs:
   build:
-
-    runs-on: windows-latest
-
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ["win-x64", "osx-x64", "linux-x64", "linux-arm64", "linux-arm"]
     steps:
     - uses: actions/checkout@v4
     - uses: actions/checkout@v4
       with:
         repository: 'Pryaxis/TShock'
         ref: 'nuget-release'
+        submodules: 'recursive'
         path: './tshock'
       name: Checkout TShock
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: '6.0.x'
+        dotnet-version: '6.0.100'
+    - name: Install msgfmt
+      run: sudo apt-get install -y gettext
     - name: Build TShock
       working-directory: './tshock/TShockLauncher'
-      run: dotnet publish -r win-x64 -f net6.0 -c Release -p:PublishSingleFile=true --self-contained false
+      run: dotnet publish -r ${{ matrix.arch }} -f net6.0 -c Release -p:PublishSingleFile=true --self-contained false
     - name: Copy Tshock Files
-      shell: bash
       run: |
-          cp ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/win-x64/publish/ServerPlugins/TShockAPI.dll ./
+          cp ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/ServerPlugins/TShockAPI.dll ./
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
@@ -49,6 +52,6 @@ jobs:
     - name: Archive Plugin Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Plugin Package
+        name: Plugin-Package-${{ matrix.arch }}
         path: |
           ./TKitchen
