@@ -70,7 +70,7 @@ namespace TerrariaKitchen
             };
             PredictionManager.OnPredictionEnd += (sender, predictionData) =>
             {
-                if (predictionData.Id == predictionId)
+                if (predictionData?.Id != null && predictionData.Id == predictionId)
                 {
                     predictionLocked = true;
                     PredictionOutcomes = predictionData.Outcomes;

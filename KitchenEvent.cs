@@ -24,13 +24,13 @@ namespace TerrariaKitchen
             QueueRoboSkelly,
         }
 
-        public string EventName { get; set; }
+        public string EventName { get; set; } = "";
 
         public EventType EventId { get; set; }
 
         public int Price { get; set; }
 
-        public List<string> EventAlias { get; set; }
+        public List<string> EventAlias { get; set; } = new List<string>();
 
         private bool StartInvasion(int type)
         {

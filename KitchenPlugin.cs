@@ -171,6 +171,11 @@ namespace TerrariaKitchen
                 try
                 {
                     var newConfig = JsonConvert.DeserializeObject<KitchenConfig>(File.ReadAllText(KitchenConfigPath));
+                    if (newConfig == null)
+                    {
+                        Console.WriteLine($"(Terraria Kitchen) Failed to reload config.");
+                        return;
+                    }
                     Console.WriteLine($"(Terraria Kitchen) Config found! Loaded menu with {newConfig.Entries?.Count ?? 0} items!");
                     if (newConfig.Entries?.Count >= 0)
                     {
@@ -368,6 +373,7 @@ namespace TerrariaKitchen
             if (!_connection.HasAPIKey())
             {
                 args.Player.SendErrorMessage("No Twitch API key set, use /setkitchenkey <twitch oauth key>");
+                return;
             }
 
             var targetPlayer = args.Player;
@@ -414,7 +420,7 @@ namespace TerrariaKitchen
             for (int i = 0; i < amount; i++)
             {
                 int tileX, tileY;
-                if (inSafeZone)
+                if (zone != null && inSafeZone)
                 {
                     if (randomSeed.Next(2) == 0)
                     {

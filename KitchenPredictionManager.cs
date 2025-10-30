@@ -307,7 +307,7 @@ namespace TerrariaKitchen
 
         public class PredictionLockEventData
         {
-            public string Id { get; set; }
+            public string? Id { get; set; }
 
             public Dictionary<string, string> Outcomes { get; set; } = new Dictionary<string, string>();
         }

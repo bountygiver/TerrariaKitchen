@@ -5,11 +5,11 @@ namespace TerrariaKitchen
     {
         public class KitchenEntry
         {
-            public string MobName { get; set; }
+            public string MobName { get; set; } = "";
 
             public int InternalName { get; set; }
 
-            public List<string> MobAlias { get; set; }
+            public List<string> MobAlias { get; set; } = new List<string>();
 
             public int Price { get; set; }
 

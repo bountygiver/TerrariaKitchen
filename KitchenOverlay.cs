@@ -297,7 +297,7 @@ if(window.location.hash) window.location = 'http://localhost:7770/registerauth?'
                         }
 
                         byte[] bytes = new byte[client.Available];
-                        stream.Read(bytes, 0, bytes.Length);
+                        stream.ReadExactly(bytes, 0, bytes.Length);
                         String data = Encoding.UTF8.GetString(bytes);
 
                         if (Regex.IsMatch(data, "^GET", RegexOptions.IgnoreCase))
