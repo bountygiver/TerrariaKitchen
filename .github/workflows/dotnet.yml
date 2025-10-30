@@ -1,0 +1,58 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: .NET
+
+on:
+  push:
+    branches: 
+      - 'main'
+      - 'releases/*'
+    tags:
+      - v*
+      - test-*
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ["win-x64", "osx-x64", "linux-x64", "linux-arm64", "linux-arm"]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: 'Pryaxis/TShock'
+        ref: 'nuget-release'
+        submodules: 'recursive'
+        path: './tshock'
+      name: Checkout TShock
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '6.0.100'
+    - name: Install msgfmt
+      run: sudo apt-get install -y gettext
+    - name: Build TShock
+      working-directory: './tshock/TShockLauncher'
+      run: dotnet publish -r ${{ matrix.arch }} -f net6.0 -c Release -p:PublishSingleFile=true --self-contained false
+    - name: Copy Tshock Files
+      run: |
+          cp ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/ServerPlugins/TShockAPI.dll ./
+          rm -rf ./tshock
+    - name: Restore dependencies
+      run: dotnet restore TerrariaKitchen.csproj
+    - name: Build
+      run: dotnet build TerrariaKitchen.csproj --no-restore -c Release
+    - name: Test
+      run: dotnet test TerrariaKitchen.csproj --no-build --verbosity normal
+    - name: Publish
+      run: dotnet publish TerrariaKitchen.csproj -o TKitchen -r ${{ matrix.arch }} -f net6.0 -c Release --self-contained false
+    - name: Archive Plugin Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Plugin-Package-${{ matrix.arch }}
+        path: |
+          ./TKitchen
