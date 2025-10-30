@@ -23,7 +23,8 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/checkout@v4
       with:
-        repository: 'Pryaxis/TShock@nuget-release'
+        repository: 'Pryaxis/TShock'
+        ref: 'nuget-release'
         path: './tshock'
       name: Checkout TShock
     - name: Setup .NET
