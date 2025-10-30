@@ -42,13 +42,13 @@ jobs:
       run: |
           cp ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/OTAPI.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/bin/TerrariaServer.dll ./tshock/TShockLauncher/bin/Release/net6.0/${{ matrix.arch }}/publish/ServerPlugins/TShockAPI.dll ./
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore TerrariaKitchen.csproj
     - name: Build
-      run: dotnet build --no-restore -c Release
+      run: dotnet build TerrariaKitchen.csproj --no-restore -c Release
     - name: Test
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test TerrariaKitchen.csproj --no-build --verbosity normal
     - name: Publish
-      run: dotnet publish --no-build TerrariaKitchen.csproj -o TKitchen
+      run: dotnet publish TerrariaKitchen.csproj -o TKitchen -r ${{ matrix.arch }} -f net6.0 -c Release --self-contained false
     - name: Archive Plugin Artifact
       uses: actions/upload-artifact@v4
       with:
