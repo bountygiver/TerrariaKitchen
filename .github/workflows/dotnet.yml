@@ -1,0 +1,55 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: .NET
+
+on:
+  push:
+    branches: 
+      - 'main'
+      - 'releases/*'
+    tags:
+      - v*
+      - test-*
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: 'Pryaxis/TShock@nuget-release'
+        path: './tshock'
+      name: Checkout TShock
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Build TShock
+      working-directory: './tshock'
+      run: |
+          dotnet restore
+          dotnet build --no-restore
+    - name: Copy Tshock Files
+      run: |
+          cp ./tshock/TShockLauncher/bin/Debug/net9.0/bin ./
+          cp ./TShock/TShockAPI/bin/Debug/net9.0/* ./
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore -c Release
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+    - name: Publish
+      run: dotnet publish --no-build TerrariaKitchen.csproj -o TKitchen
+    - name: Archive Plugin Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Plugin Package
+        path: |
+          ./TKitchen
