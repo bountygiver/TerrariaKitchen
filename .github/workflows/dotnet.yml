@@ -8,6 +8,7 @@ on:
     branches: 
       - 'main'
       - 'releases/*'
+      - 'test-*'
     tags:
       - v*
       - test-*
@@ -30,10 +31,10 @@ jobs:
     - name: Test
       run: dotnet test TerrariaKitchen.csproj --no-build --verbosity normal
     - name: Publish
-      run: dotnet publish TerrariaKitchen.csproj -o /out/ -f net6.0 -c Release --self-contained false
+      run: dotnet publish TerrariaKitchen.csproj -o ./out/ -f net6.0 -c Release --self-contained false
     - name: Archive Plugin Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Plugin-Package
         path: |
-          /out/TerrariaKitchen.dll
+          ./out/TerrariaKitchen.dll
