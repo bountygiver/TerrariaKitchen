@@ -6,28 +6,23 @@ TShock plugin that enables twitch integration to allow chatters to spend credits
 
 ⚠ Firstly, this plugin is not vetted by official TShock staff, please read their [plugin safety guidelines](https://tshock.readme.io/docs/plugin-safety) ⚠
 
-You will need [tshock](https://tshock.readme.io/docs/getting-started), and a way to compile this mod. You will need Visual Studio, and copy `TerrariaServer.dll`, `TShockAPI.dll`, and `OTAPI.dll` from the tshock installation to the root of this project directory.
+[![.NET](https://github.com/bountygiver/TerrariaKitchen/actions/workflows/dotnet.yml/badge.svg?branch=test-new-twitch-api)](https://github.com/bountygiver/TerrariaKitchen/actions/workflows/dotnet.yml)
 
-Then, after downloading all dependencies using NuGet, which are:
-- [Microsoft.Data.Sqlite](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/)
-- [TwitchLib](https://github.com/TwitchLib/TwitchLib)
+TODO: Add github release and download link (For now you can download the dll file from the `Archive Plugin Artifact` step in the workflow)
 
-you can then build the plugin locally. In order to make sure all dependencies are present, you will need to create a publishing profile by using Build -> Publish, and select the "Folder" option, after publishing copy the following files in the folder to `ServerPlugins` folder of TShock:
-- `Microsoft.Extensions.Logging.Abstractions.dll`
-- `TerrariaKitchen.dll`
-- `TwitchLib.Client.dll`
-- `TwitchLib.Client.Enums.dll`
-- `TwitchLib.Client.Models.dll`
-- `TwitchLib.Communication.dll`
-- `TwitchLib.Api.Core.dll`
-- `TwitchLib.Api.Core.Enums.dll`
-- `TwitchLib.Api.Core.Interfaces.dll`
-- `TwitchLib.Api.Core.Models.dll`
-- `TwitchLib.Api.dll`
-- `TwitchLib.Api.Helix.dll`
-- `TwitchLib.Api.Helix.Models.dll`
+Add the dependencies required by this plugin to `packages.json` folder within your tshock installation folder. If the file does not exist. You can create it with the following contents:
+```
+{
+    "packages": {
+        "TwitchLib": "3.5.3"
+    }
+}
+```
+Then run `TShock.Server plugins sync` and follow the instructions to install all dependencies.
 
-Afterwards you will need to configure your twitch api, you can either do it through console command `/setkitchenkey <api key>` or put the key in `kitchenapi.txt` inside the `tshock` subfolder within Tshock installation. And also configure your settings by adding a `kitchen.json` in the same folder with the format in the [Configuration section](#Configuration).
+Add your `kitchen.json` file according to the [Configuration Section](#configuration) below
+
+Afterwards you will need to configure your twitch api, you can either do it through the link in the console (`http://localhost:7770/connectTwitch` if you never changed your overlay port), using console command `/setkitchenkey <api key>` or put the key in `kitchenapi.txt` inside the `tshock` subfolder within Tshock installation.
 
 Once it's all done, load into a world and you can use `/startkitchen <twitch channle name> <player name>` and twitch integration will start accepting orders from chatters.
 

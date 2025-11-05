@@ -373,6 +373,10 @@ namespace TerrariaKitchen
             if (!_connection.HasAPIKey())
             {
                 args.Player.SendErrorMessage("No Twitch API key set, use /setkitchenkey <twitch oauth key>");
+                if (Config.OverlayPort == 7770)
+                {
+                    Console.WriteLine($"(Terraria Kitchen) You may authenticate by visiting http://localhost:7770/connectTwitch");
+                }
                 return;
             }
 
